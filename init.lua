@@ -91,8 +91,10 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
-vim.g.have_nerd_font = false
+vim.g.have_nerd_font = true
 
+-- Hot Reload for Bun
+vim.opt.backupcopy = 'yes'
 -- [[ Setting options ]]
 -- See `:help vim.o`
 -- NOTE: You can change these options as you wish!
@@ -614,8 +616,11 @@ require('lazy').setup({
       -- You can press `g?` for help in this menu.
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
-        'lua_ls', -- Lua Language server
+        'lua-language-server', -- Lua Language server
         'stylua', -- Used to format Lua code
+        'typescript-language-server', -- TypeScript/JavaScript LSP
+        'prettier', -- For formatting TS/JS/JSON/etc
+        'eslint_d', -- For linting
         -- You can add other tools here that you want Mason to install
       })
 
@@ -653,6 +658,11 @@ require('lazy').setup({
         },
       })
       vim.lsp.enable 'lua_ls'
+      -- TypeScript/JavaScript Config
+      vim.lsp.config('ts_ls', {
+        -- Add any custom settings here if needed
+      })
+      vim.lsp.enable 'ts_ls'
     end,
   },
 
@@ -853,7 +863,13 @@ require('lazy').setup({
     'nvim-treesitter/nvim-treesitter',
     config = function()
       local filetypes = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
-      require('nvim-treesitter').install(filetypes)
+      require('nvim-treesitter.configs').setup {
+        ensure_installed = filetypes,
+        auto_install = true,
+        highlight = {
+          enable = true,
+        },
+      }
       vim.api.nvim_create_autocmd('FileType', {
         pattern = filetypes,
         callback = function() vim.treesitter.start() end,
