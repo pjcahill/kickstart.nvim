@@ -104,7 +104,7 @@ vim.opt.backupcopy = 'yes'
 vim.o.number = true
 -- You can also add relative line numbers, to help with jumping.
 --  Experiment for yourself to see if you like it!
--- vim.o.relativenumber = true
+vim.o.relativenumber = true
 
 -- Enable mouse mode, can be useful for resizing splits for example!
 vim.o.mouse = 'a'
@@ -658,9 +658,10 @@ require('lazy').setup({
         },
       })
       vim.lsp.enable 'lua_ls'
+
       -- TypeScript/JavaScript Config
       vim.lsp.config('ts_ls', {
-        -- Add any custom settings here if needed
+        capabilities = vim.tbl_deep_extend('force', {}, capabilities, {}),
       })
       vim.lsp.enable 'ts_ls'
     end,
@@ -891,7 +892,7 @@ require('lazy').setup({
   -- require 'kickstart.plugins.lint',
   -- require 'kickstart.plugins.autopairs',
   -- require 'kickstart.plugins.neo-tree',
-  -- require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
+  require 'kickstart.plugins.gitsigns', -- adds gitsigns recommend keymaps
 
   -- NOTE: The import below can automatically add your own plugins, configuration, etc from `lua/custom/plugins/*.lua`
   --    This is the easiest way to modularize your config.
@@ -924,6 +925,15 @@ require('lazy').setup({
     },
   },
 })
+
+-- User Commands
+vim.api.nvim_create_user_command('Delete', function()
+  local file = vim.fn.expand '%'
+  vim.fn.delete(file)
+  vim.cmd 'bd!'
+end, {})
+
+vim.keymap.set('n', '<leader>fw', ':w<CR>', { desc = '[f]ile [w]rite (save)' })
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
