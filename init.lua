@@ -303,6 +303,30 @@ require('lazy').setup({
     },
   },
 
+  {
+    'sindrets/diffview.nvim',
+    dependencies = { 'nvim-lua/plenary.nvim' },
+    cmd = { 'DiffviewOpen', 'DiffviewClose', 'DiffviewFocusFiles' },
+    opts = {
+      file_panel = {
+        listing_style = "tree",
+      },
+    },
+    config = function(_, opts)
+      require("diffview").setup(opts)
+      local timer = vim.uv.new_timer()
+      vim.api.nvim_create_autocmd("CursorMoved", {
+        pattern = "DiffviewFilePanel*",
+        callback = function()
+          timer:stop()
+          timer:start(80, 0, vim.schedule_wrap(function()
+            pcall(require("diffview.actions").select_entry)
+          end))
+        end,
+      })
+    end,
+  },
+
   -- NOTE: Plugins can also be configured to run Lua code when they are loaded.
   --
   -- This is often very useful to both group configuration, as well as handle

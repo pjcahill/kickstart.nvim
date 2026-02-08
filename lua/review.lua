@@ -1,5 +1,27 @@
 local M = {}
 
+local function has_unstaged_changes()
+  local status = vim.fn.system("git status --porcelain")
+  for line in status:gmatch("[^\n]+") do
+    local y = line:sub(2, 2)
+    if y ~= " " then return true end
+  end
+  return false
+end
+
+-- Navigate to a specific file in diffview by path, with focus on the diff buffer
+function M.goto_file(path)
+  local ok, lib = pcall(require, "diffview.lib")
+  if not ok then return end
+
+  local view = lib.get_current_view()
+  if not view then return end
+
+  -- set_file_by_path(path, focus, highlight)
+  -- focus=true moves cursor to the diff panel, highlight=true updates the file panel
+  view:set_file_by_path(path, true, true)
+end
+
 function M.start()
   local handle = io.popen("review-queue")
   if not handle then
@@ -19,39 +41,117 @@ function M.start()
     return
   end
 
-  vim.g.review_queue = files
-  vim.g.review_index = 1
-  M.open_current()
-end
-
-function M.open_current()
-  local files = vim.g.review_queue
-  local idx = vim.g.review_index
-
-  if not files or not idx or idx > #files then
-    vim.notify("Review complete ✓", vim.log.levels.INFO)
+  if not has_unstaged_changes() then
+    vim.ui.select({ "Open Terminal to Commit", "Open Review Session", "Back" }, {
+      prompt = "All files already staged",
+    }, function(choice)
+      if choice == "Open Terminal to Commit" then
+        vim.fn.termopen("git status && exec $SHELL")
+        vim.cmd("startinsert")
+      elseif choice == "Open Review Session" then
+        vim.g.review_queue = files
+        vim.g.review_index = 1
+        vim.g.review_active = true
+        vim.cmd("DiffviewOpen")
+        vim.defer_fn(function()
+          M.goto_file(files[1])
+        end, 300)
+      end
+    end)
     return
   end
 
-  -- Collapse to a single window, clearing any gitsigns diff splits
-  vim.cmd("only")
-  vim.cmd("diffoff")
-
-  vim.notify(string.format("[%d/%d] %s", idx, #files, files[idx]), vim.log.levels.INFO)
-  vim.cmd("edit " .. vim.fn.fnameescape(files[idx]))
-  vim.cmd("Gitsigns diffthis")
+  vim.g.review_queue = files
+  vim.g.review_index = 0
+  vim.g.review_active = true
+  vim.cmd("DiffviewOpen")
+  vim.defer_fn(function()
+    M.advance()
+  end, 300)
+  vim.notify(string.format("Review: %d files", #files), vim.log.levels.INFO)
 end
 
-function M.next_file()
-  local idx = vim.g.review_index or 1
-  vim.g.review_index = idx + 1
-  M.open_current()
+local function file_needs_review(path)
+  local status = vim.fn.system("git status --porcelain -- " .. vim.fn.shellescape(path))
+  for line in status:gmatch("[^\n]+") do
+    local y = line:sub(2, 2)
+    if y ~= " " then return true end
+  end
+  return false
 end
 
-function M.prev_file()
-  local idx = vim.g.review_index or 1
-  vim.g.review_index = math.max(1, idx - 1)
-  M.open_current()
+function M.advance()
+  local files = vim.g.review_queue
+  local idx = (vim.g.review_index or 0)
+
+  -- Skip already-staged files
+  repeat
+    idx = idx + 1
+    if not files or idx > #files then
+      if not has_unstaged_changes() then
+        vim.ui.select({ "Open Terminal to Commit", "Continue Review", "Back" }, {
+          prompt = "All files staged",
+        }, function(choice)
+          if choice == "Open Terminal to Commit" then
+            M.stop()
+            vim.fn.termopen("git status && exec $SHELL")
+            vim.cmd("startinsert")
+          elseif choice == "Back" then
+            M.stop()
+          end
+        end)
+      else
+        vim.notify(string.format("End of review queue (%d files)", #files), vim.log.levels.INFO)
+      end
+      return
+    end
+  until file_needs_review(files[idx])
+
+  vim.g.review_index = idx
+  M.goto_file(files[idx])
+end
+
+function M.stop()
+  vim.cmd("DiffviewClose")
+  vim.g.review_active = false
+  vim.g.review_queue = nil
+  vim.g.review_index = nil
+end
+
+function M.stage_and_advance()
+  -- If in diffview file panel, use diffview's own staging
+  if vim.bo.filetype == "DiffviewFiles" then
+    local ok, dv_actions = pcall(require, "diffview.actions")
+    if ok then
+      dv_actions.toggle_stage_entry()
+      vim.defer_fn(function()
+        M.advance()
+      end, 100)
+    end
+    return
+  end
+
+  local gs = require("gitsigns")
+  local hunks_before = gs.get_hunks()
+
+  if not hunks_before or #hunks_before == 0 then
+    -- No gitsigns hunks — file is likely untracked, fall back to git add
+    local file = vim.fn.expand("%:p")
+    if file ~= "" then
+      vim.fn.system({ "git", "add", file })
+    end
+  else
+    gs.stage_hunk()
+  end
+
+  vim.defer_fn(function()
+    local hunks = gs.get_hunks()
+    if not hunks or #hunks == 0 then
+      M.advance()
+    else
+      gs.nav_hunk("next", { wrap = false })
+    end
+  end, 100)
 end
 
 function M.pick()
@@ -91,7 +191,7 @@ function M.pick()
         local selection = action_state.get_selected_entry()
         actions.close(prompt_bufnr)
         vim.g.review_index = selection.index
-        M.open_current()
+        M.goto_file(selection.value)
       end)
       return true
     end,
